@@ -1,0 +1,441 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ======================================================
+// ENUMS
+// ======================================================
+
+enum OrganizationRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum ProjectStatus {
+  PLANNING
+  IN_PROGRESS
+  RECEIVED
+  COMPLETED
+}
+
+enum ItemCategory {
+  PRODUCT
+  MATERIAL
+  SERVICE
+  LABOR
+  OTHER
+}
+
+enum QuoteStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  CANCELLED
+}
+
+enum OrganizationType {
+  PERSONAL
+  BUSINESS
+}
+
+// ======================================================
+// USERS
+// ======================================================
+
+model User {
+  id           String  @id @default(uuid()) @db.Uuid
+  email        String  @unique
+  passwordHash String  @map("password_hash")
+  name         String?
+
+  isActive        Boolean   @default(true) @map("is_active")
+  emailVerifiedAt DateTime? @map("email_verified_at")
+  lastLoginAt     DateTime? @map("last_login_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  memberships Membership[]
+  sessions    Session[]
+  preferences UserPreference?
+
+  @@map("users")
+}
+
+// ======================================================
+// USER PREFERENCES
+// ======================================================
+
+model UserPreference {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @unique @map("user_id") @db.Uuid
+
+  theme    String @default("system")
+  language String @default("es")
+  timezone String @default("America/Santiago")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_preferences")
+}
+
+// ======================================================
+// AUTH SESSIONS
+// ======================================================
+
+model Session {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @map("user_id") @db.Uuid
+
+  refreshTokenHash String @map("refresh_token_hash")
+
+  userAgent String? @map("user_agent")
+  ipAddress String? @map("ip_address")
+
+  expiresAt  DateTime  @map("expires_at")
+  lastUsedAt DateTime? @map("last_used_at")
+  revokedAt  DateTime? @map("revoked_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+// ======================================================
+// ORGANIZATIONS
+// Cada organización representa un tenant del SaaS
+// ======================================================
+
+model Organization {
+  id   String @id @default(uuid()) @db.Uuid
+  name String
+  slug String @unique
+
+  type OrganizationType @default(BUSINESS)
+
+  isActive Boolean @default(true) @map("is_active")
+
+  quotePrefix String @default("COT") @map("quote_prefix")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  memberships Membership[]
+  settings    CompanySetting?
+
+  customers Customer[]
+  projects  Project[]
+  catalog   CatalogItem[]
+  quotes    Quote[]
+
+  quoteSequence QuoteSequence?
+
+  @@map("organizations")
+}
+
+// ======================================================
+// MEMBERSHIPS
+// Relación entre usuarios y organizaciones
+// ======================================================
+
+model Membership {
+  id String @id @default(uuid()) @db.Uuid
+
+  userId         String @map("user_id") @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+
+  role     OrganizationRole @default(MEMBER)
+  isActive Boolean          @default(true) @map("is_active")
+
+  joinedAt DateTime @default(now()) @map("joined_at")
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@index([userId])
+  @@index([organizationId])
+  @@map("memberships")
+}
+
+// ======================================================
+// COMPANY SETTINGS
+// ======================================================
+
+model CompanySetting {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @unique @map("organization_id") @db.Uuid
+
+  tradeName    String? @map("trade_name")
+  legalName    String? @map("legal_name")
+  taxId        String? @map("tax_id")
+  businessLine String? @map("business_line")
+
+  contactEmail String? @map("contact_email")
+  phone        String?
+  website      String?
+  address      String?
+
+  logoUrl        String? @map("logo_url")
+  primaryColor   String? @map("primary_color")
+  secondaryColor String? @map("secondary_color")
+
+  currencyCode   String @default("CLP") @map("currency_code")
+  currencySymbol String @default("$") @map("currency_symbol")
+
+  taxPercentage Decimal @default(19.00) @map("tax_percentage") @db.Decimal(5, 2)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("company_settings")
+}
+
+// ======================================================
+// CUSTOMERS
+// Clientes de cada organización
+// ======================================================
+
+model Customer {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+
+  name    String
+  taxId   String? @map("tax_id")
+  email   String?
+  phone   String?
+  address String?
+  notes   String?
+
+  isActive Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  contacts CustomerContact[]
+  projects Project[]
+  quotes   Quote[]
+
+  @@index([organizationId])
+  @@index([organizationId, name])
+  @@index([organizationId, taxId])
+  @@index([organizationId, isActive])
+  @@map("customers")
+}
+
+// ======================================================
+// CUSTOMER CONTACTS
+// ======================================================
+
+model CustomerContact {
+  id         String @id @default(uuid()) @db.Uuid
+  customerId String @map("customer_id") @db.Uuid
+
+  name     String
+  email    String?
+  phone    String?
+  position String?
+
+  isPrimary Boolean @default(false) @map("is_primary")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@map("customer_contacts")
+}
+
+// ======================================================
+// PROJECTS
+// ======================================================
+
+model Project {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  customerId     String @map("customer_id") @db.Uuid
+
+  name        String
+  description String?
+  location    String?
+
+  status ProjectStatus @default(PLANNING)
+
+  startDate DateTime? @map("start_date")
+  endDate   DateTime? @map("end_date")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer     Customer     @relation(fields: [customerId], references: [id], onDelete: Restrict)
+
+  quotes Quote[]
+
+  @@index([organizationId])
+  @@index([customerId])
+  @@index([organizationId, status])
+  @@index([organizationId, name])
+  @@map("projects")
+}
+
+// ======================================================
+// CATALOG
+// Productos, materiales, servicios y mano de obra
+// ======================================================
+
+model CatalogItem {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+
+  name        String
+  description String?
+
+  category ItemCategory @default(PRODUCT)
+
+  code String?
+  unit String  @default("un")
+
+  supplierReference String? @map("supplier_reference")
+
+  costPrice Decimal @default(0) @map("cost_price") @db.Decimal(15, 2)
+  salePrice Decimal @default(0) @map("sale_price") @db.Decimal(15, 2)
+
+  isActive Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  quoteItems QuoteItem[]
+
+  @@index([organizationId])
+  @@index([organizationId, category])
+  @@index([organizationId, name])
+  @@index([organizationId, code])
+  @@map("catalog_items")
+}
+
+// ======================================================
+// QUOTE SEQUENCE
+// Numeración independiente para cada organización
+// ======================================================
+
+model QuoteSequence {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @unique @map("organization_id") @db.Uuid
+
+  currentNumber Int @default(0) @map("current_number")
+
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("quote_sequences")
+}
+
+// ======================================================
+// QUOTES
+// ======================================================
+
+model Quote {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+
+  customerId String  @map("customer_id") @db.Uuid
+  projectId  String? @map("project_id") @db.Uuid
+
+  quoteNumber Int @map("quote_number")
+
+  status QuoteStatus @default(DRAFT)
+
+  subtotalCost Decimal @default(0) @map("subtotal_cost") @db.Decimal(15, 2)
+  subtotalSale Decimal @default(0) @map("subtotal_sale") @db.Decimal(15, 2)
+
+  taxPercentage Decimal @default(19.00) @map("tax_percentage") @db.Decimal(5, 2)
+  taxAmount     Decimal @default(0) @map("tax_amount") @db.Decimal(15, 2)
+
+  totalAmount Decimal @default(0) @map("total_amount") @db.Decimal(15, 2)
+
+  notes String?
+
+  validUntil DateTime? @map("valid_until")
+
+  sentAt     DateTime? @map("sent_at")
+  acceptedAt DateTime? @map("accepted_at")
+  rejectedAt DateTime? @map("rejected_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer     Customer     @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  project      Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  items QuoteItem[]
+
+  @@unique([organizationId, quoteNumber])
+  @@index([organizationId])
+  @@index([customerId])
+  @@index([projectId])
+  @@index([organizationId, status])
+  @@index([organizationId, createdAt])
+  @@map("quotes")
+}
+
+// ======================================================
+// QUOTE ITEMS
+// ======================================================
+
+model QuoteItem {
+  id      String @id @default(uuid()) @db.Uuid
+  quoteId String @map("quote_id") @db.Uuid
+
+  catalogItemId String? @map("catalog_item_id") @db.Uuid
+
+  position Int @default(0)
+
+  description String
+  unit        String @default("un")
+
+  quantity Decimal @default(1) @db.Decimal(12, 3)
+
+  unitCost  Decimal @default(0) @map("unit_cost") @db.Decimal(15, 2)
+  unitPrice Decimal @default(0) @map("unit_price") @db.Decimal(15, 2)
+
+  totalCost  Decimal @default(0) @map("total_cost") @db.Decimal(15, 2)
+  totalPrice Decimal @default(0) @map("total_price") @db.Decimal(15, 2)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  quote       Quote        @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  catalogItem CatalogItem? @relation(fields: [catalogItemId], references: [id], onDelete: SetNull)
+
+  @@index([quoteId])
+  @@index([catalogItemId])
+  @@index([quoteId, position])
+  @@map("quote_items")
+}

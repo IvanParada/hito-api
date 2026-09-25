@@ -6,6 +6,7 @@ import configuration from './core/config/configuration.js';
 import { envValidationSchema } from './core/config/env.validation.js';
 import { AuthModule } from './features/auth/auth.module.js';
 import { SettingsModule } from './features/settings/settings.module.js';
+import { CatalogModule } from './features/catalog/catalog.module.js';
 
 @Module({
   imports: [
@@ -17,7 +18,8 @@ import { SettingsModule } from './features/settings/settings.module.js';
     PrismaModule,
     RedisModule,
     AuthModule,
-    SettingsModule
+    SettingsModule,
+    CatalogModule
   ],
 })
 export class AppModule {}
